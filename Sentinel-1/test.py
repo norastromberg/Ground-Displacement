@@ -1,6 +1,8 @@
 import imageio
+import pandas as pd
 import numpy as np
-import numpy as np
+import matplotlib.pyplot as plt
+from scipy.spatial import cKDTree as cKD
 
 
 def read_file(filepath):
@@ -48,27 +50,121 @@ def read_image_to_matrix(filepath, rows, cols):
     img = np.reshape(x, [rows, cols])
     return img
 
-def read_image_size():
-    asc_file = open("data/asc_coordinate_info.txt")
-    desc_file = open("data/desc_coordinate_info.txt")
-    asc_size = asc_file.read().split(",")
-    desc_size = desc_file.read().split(",")
+def generate_dataframe(filepath):
+    df = pd.read_table(filepath, skiprows=6)
+    return df
 
-    return asc_size,desc_size
+def plot():
+    df_asc = generate_dataframe("data/ASC_cropped_Displacement_Geocoded_2806_1007.data/ASC_INFO.txt")
+    df_desc = generate_dataframe("data/DESC_cropped_Geocoded_Displacement_2206_1607.data/DESC_INFO.txt")
+    asc_lat = df_asc["Latitude"].head(10000)
+    asc_long = df_asc["Longitude"].head(10000)
+    desc_lat = df_asc["Latitude"].head(10000)
+    desc_long = df_asc["Longitude"].head(10000)
+    plt.plot(asc_lat,asc_long,"r--",desc_lat,desc_long,"bs")
+    plt.show()
+
+def find_min_max_coordinates(df_asc,df_desc):
+    asc_lat_min = df_asc["Latitude"].min()
+    desc_lat_min = df_desc["Latitude"].min()
+    asc_lat_max = df_asc["Latitude"].max()
+    desc_lat_max = df_desc["Latitude"].max()
+    asc_long_min = df_asc["Longitude"].min()
+    desc_long_min = df_desc["Longitude"].min()
+    asc_long_max = df_asc["Longitude"].max()
+    desc_long_max = df_desc["Longitude"].max()
+    min_lat = max(asc_lat_min, desc_lat_min)
+    max_lat = min(asc_lat_max, desc_lat_max)
+    min_long = max(asc_long_min, desc_long_min)
+    max_long = min(asc_long_max, desc_long_max)
+
+    return min_lat, max_lat, min_long, max_long
+
+def generate_coordinate_grid(df_asc, df_desc):
+    min_lat, max_lat, min_long, max_long = find_min_max_coordinates(df_asc, df_desc)
+    x = np.linspace(min_long, max_long,2050)
+    y = np.linspace(min_lat, max_lat, 1600)
+    coordinate_matrix = np.zeros([1600, 2050], dtype=object)
+    for i in range(1600):
+        for j in range(2050):
+            array = [y[i], x[j]]
+            coordinate_matrix[i][j] = array
+
+    return coordinate_matrix
+
+
+def build_cKDtrees(df_asc, df_desc):
+    asc_lat_longs = generate_lat_longs(df_asc)
+    desc_lat_longs = generate_lat_longs(df_desc)
+    asc_tree = cKD(asc_lat_longs)
+    desc_tree = cKD(desc_lat_longs)
+
+    return asc_tree, desc_tree
+
+
+def generate_lat_longs(df):
+    lat_longs = df[["Latitude", "Longitude"]]
+
+    return lat_longs.values.tolist()
+
+
+def find_nearest_points_and_info(lat_long,df_asc, df_desc):
+    asc_tree, desc_tree = build_cKDtrees(df_asc, df_desc)
+    nearest_asc_point = asc_tree.query([lat_long], k=1)
+    nearest_desc_point = desc_tree.query([lat_long], k=1)
+    index_asc = nearest_asc_point[1][0]
+    index_desc = nearest_desc_point[1][0]
+    info_asc = df_asc[["displacement_VV", "incidenceAngleFromEllipsoid"]].iloc[index_asc]
+    info_desc = df_desc[["displacement_VV", "incidenceAngleFromEllipsoid"]].iloc[index_desc]
+
+    return info_asc, info_desc
+
+
+def calculate_dv_de(lat, long, df_asc, df_desc):
+    info_asc, info_desc = find_nearest_points_and_info([lat, long], df_asc, df_desc)
+    inc_asc = info_asc["incidenceAngleFromEllipsoid"]
+    inc_desc = info_desc["incidenceAngleFromEllipsoid"]
+    disp_asc = info_asc["displacement_VV"]
+    disp_desc = info_desc["displacement_VV"]
+    az_asc = -13.07251464606799
+    az_desc = -166.9596229763622
+
+    A = np.array([[np.cos(inc_asc), -np.cos(az_asc) * np.sin(inc_asc)], [np.cos(inc_desc), -np.cos(az_desc) * np.sin(inc_desc)]])
+    B = np.array([[disp_asc], [disp_desc]])
+    X = np.linalg.inv(A).dot(B)
+    dv = X[0][0]
+    de = X[1][0]
+    print('dv = ', dv)
+    print('de = ', de)
+
+    return dv,de
+
+
+def generate_displacement_matrix(df_asc, df_desc):
+    coordinate_matrix = generate_coordinate_grid(df_asc, df_desc)
+    for row in coordinate_matrix:
+        print(row)
+        for col in coordinate_matrix:
+            lat = coordinate_matrix[row][col][0]
+            long = coordinate_matrix[row][col][1]
+            dv,de = calculate_dv_de(lat, long, df_asc, df_desc)
+            coordinate_matrix[row][col] = [dv,de]
+
+    return coordinate_matrix
+
 
 def program():
-    asc_size, desc_size = read_image_size()
+    df_asc = generate_dataframe("data/ASC_cropped_Displacement_Geocoded_2806_1007.data/ASC_INFO.txt")
+    df_desc = generate_dataframe("data/DESC_cropped_Geocoded_Displacement_2206_1607.data/DESC_INFO.txt")
+    displacement_matrix = generate_displacement_matrix(df_asc,df_desc)
+    file = open("data/matrix.txt", "w")
+    file.write(displacement_matrix)
+    file.close()
+    return displacement_matrix
+
 
 def main():
-    #img1 = read_file('/Users/norabrask/PycharmProjects/ProjectAssignment/Ground-Displacement/Sentinel-1/sample.hdr')
-    #img2 = read_file('/Users/norabrask/PycharmProjects/ProjectAssignment/Ground-Displacement/Sentinel-1/sample.hdr')
-    #compute_deformation_east_west(img1, img2, 10, 12, 11, 13, 0.5, 0.5)
-
-    # calculate_dv_de(1,1,90,45,45,45,1,1)
-    #print(read_image_to_matrix("/Users/Sigrid/Documents/prosjektoppgave/Ground-Displacement/Sentinel-1/data/ASC_cropped_Displacement_Geocoded_2806_1007.data/localIncidenceAngle.img",2094,1611))
-    #read_dim("Sentinel-1/data/ASC_cropped_Displacement_Geocoded_2806_1007.data/ASC_cropped_Displacement_Geocoded_2806_1007.dim")
     program()
-
 
 if __name__ == '__main__':
     main()
