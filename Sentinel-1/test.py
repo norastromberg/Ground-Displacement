@@ -77,7 +77,8 @@ def find_min_max_coordinates(df_asc,df_desc):
     max_lat = min(asc_lat_max, desc_lat_max)
     min_long = max(asc_long_min, desc_long_min)
     max_long = min(asc_long_max, desc_long_max)
-
+    print("ASC: " , asc_lat_min,asc_lat_max,asc_long_min,asc_long_max)
+    print("DESC: " , desc_lat_min, desc_lat_max, desc_long_min, desc_long_max)
     return min_lat, max_lat, min_long, max_long
 
 def generate_coordinate_grid(df_asc, df_desc):
@@ -156,11 +157,14 @@ def generate_displacement_matrix(df_asc, df_desc):
 def program():
     df_asc = generate_dataframe("data/ASC_cropped_Displacement_Geocoded_2806_1007.data/ASC_INFO.txt")
     df_desc = generate_dataframe("data/DESC_cropped_Geocoded_Displacement_2206_1607.data/DESC_INFO.txt")
-    displacement_matrix = generate_displacement_matrix(df_asc,df_desc)
-    file = open("data/matrix.txt", "w")
-    file.write(displacement_matrix)
-    file.close()
-    return displacement_matrix
+    print(find_min_max_coordinates(df_asc,df_desc))
+
+    #displacement_matrix = generate_displacement_matrix(df_asc,df_desc)
+    #file = open("data/matrix.txt", "w")
+    #file.write(displacement_matrix)
+    #file.close()
+    #return displacement_matrix
+
 
 
 def main():
